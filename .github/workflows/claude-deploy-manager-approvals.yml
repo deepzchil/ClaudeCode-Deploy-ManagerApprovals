@@ -31,7 +31,7 @@ env:
   GCP_BUCKET: claudedeployapp
   ARTIFACT_RETENTION_DAYS: 30
   MAX_ZIPS_PER_FOLDER: 5
-  NODE_VERSION: '18'
+  NODE_VERSION: '20'  # Use Node 20 for Angular 15+ builds
 
 # ═════════════════════════════════════════════════════════════════════════════
 # JOB 1 — Resolve environment-specific variables
