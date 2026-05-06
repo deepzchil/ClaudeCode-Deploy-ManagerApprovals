@@ -117,7 +117,7 @@ jobs:
           username: ${{ secrets.SMTP_USERNAME }}
           password: ${{ secrets.SMTP_PASSWORD }}
           subject: "🟡 TEST Deployment Approval Required - HMS"
-          to: lead@company.com
+          to: ${{ secrets.LEAD_EMAIL }}
           from: CI/CD Pipeline
           body: |
             TEST Deployment Request
@@ -202,7 +202,7 @@ jobs:
           username: ${{ secrets.SMTP_USERNAME }}
           password: ${{ secrets.SMTP_PASSWORD }}
           subject: "✅ Deployment Successful - HMS"
-          to: manager@company.com
+          to: ${{ secrets.MANAGER_EMAIL }}
           from: CI/CD Pipeline
           body: |
             Deployment Successful 🚀
@@ -219,7 +219,7 @@ jobs:
           username: ${{ secrets.SMTP_USERNAME }}
           password: ${{ secrets.SMTP_PASSWORD }}
           subject: "❌ Deployment Failed - HMS"
-          to: manager@company.com
+          to: ${{ secrets.MANAGER_EMAIL }}
           from: CI/CD Pipeline
           body: |
             Deployment Failed ❌
