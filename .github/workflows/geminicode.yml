@@ -90,17 +90,20 @@ jobs:
           npm install
           npm run build -- --configuration production
 
+      - name: Upload Build Artifact (FIXED)
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: dist/
+
       - name: Debug Build Output (MANDATORY)
         run: |
           echo "Checking app folder..."
-          ls -R app || (echo "❌ BUILD FAILED - app not found" && exit 1)
-
-      - name: Upload Build Artifact (ONLY IF BUILD EXISTS)
-        uses: actions/upload-artifact@v4
-        if: success()
-        with:
-          name: build-output
-          path: app/
+          ls -R app || true
+      - name: Debug Angular Build Output
+        run: |
+          echo "Checking Angular output..."
+          ls -R . || true
 
       - name: Generate Timestamp
         id: time
@@ -387,19 +390,29 @@ jobs:
 
     steps:
 
-      # ✅ STEP 3: DOWNLOAD ARTIFACT (FIRST STEP)
+      # ✅ STEP : DOWNLOAD ARTIFACT (FIRST STEP)
       - name: Download Build Artifact
         uses: actions/download-artifact@v4
         with:
           name: build-output
 
-      - name: Verify Artifact
+      - name: Detect Angular Output (ROBUST FIX)
+        id: detect
         run: |
-          ls -R .
-          if [ ! -d "dist" ]; then
-            echo "❌ Artifact missing"
-            exit 1
+          echo "Searching Angular output..."
+
+          BUILD_DIR=$(find . -type f -name index.html | grep -v node_modules | head -n 1 | xargs dirname)
+
+          echo "FOUND BUILD DIR: $BUILD_DIR"
+
+          if [ -z "$BUILD_DIR" ]; then
+           echo "❌ Angular build not found"
+           exit 1
           fi
+
+          ls -R "$BUILD_DIR"
+
+          echo "build_dir=$BUILD_DIR" >> $GITHUB_OUTPUT
 
       # (optional but recommended)
       - name: Debug Workspace
@@ -432,22 +445,6 @@ jobs:
             | tail -n +6 \
             | xargs -r gsutil rm
 
-      - name: Detect Angular Build Folder
-        id: detect
-        run: |
-          echo "Searching for Angular build output..."
-
-          # Find index.html safely
-          BUILD_DIR=$(find . -type f -name "index.html" | grep -v "node_modules" | head -n 1 | xargs dirname)
-
-          echo "FOUND BUILD DIR: $BUILD_DIR"
-
-          if [ -z "$BUILD_DIR" ]; then
-            echo "❌ No index.html found. Build likely failed."
-            exit 1
-          fi
-
-          echo "build_dir=$BUILD_DIR" >> $GITHUB_OUTPUT
 
       - name: Deploy to GCS
         run: |
@@ -457,13 +454,11 @@ jobs:
 
           echo "Deploying from: $BUILD_DIR"
 
-          ls -R "$BUILD_DIR"
-
           gsutil -m rsync -r -d "$BUILD_DIR/" gs://${{ env.BUCKET_NAME }}/$ENV/app/
 
       - name: Set Website Config
         run: |
-          gsutil web set -m index.html -e index.html gs://${{ env.BUCKET_NAME }}
+          gsutil web set -m index.html -e index.html gs://${{ env.BUCKET_NAME }}/$ENV/app/
 
       - name: Output URL
         id: output_url
