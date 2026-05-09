@@ -182,7 +182,7 @@ jobs:
 
             core.setOutput("resolved_issues", output);
 
-      - name: Create ZIP Artifact (FINAL FIX)
+      - name: Create ZIP Artifact (STANDARD STRUCTURE)
         id: create_zip
         run: |
           ENV=${{ github.event.inputs.environment }}
@@ -200,8 +200,12 @@ jobs:
             exit 1
           fi
 
-          cd $BUILD_DIR
-          zip -r ../../../$ZIP_NAME .
+          # ✅ Create clean packaging directory
+          mkdir package
+          cp -r $BUILD_DIR package/app
+
+          # ✅ Zip WITH ROOT FOLDER (important)
+          zip -r $ZIP_NAME package
 
       - name: Upload Final Artifact
         if: success()
@@ -210,6 +214,8 @@ jobs:
           name: build-output
           path: ${{ steps.create_zip.outputs.zip_name }}
           retention-days: 1
+          if-no-files-found: error
+          overwrite: true
 
 # -------------------------------------------------
 # JOB 3 - LEAD APPROVAL EMAIL
@@ -392,7 +398,9 @@ jobs:
           name: build-output
 
       - name: Extract Artifact
-        run: unzip "${{ needs.build.outputs.zip_name }}" -d deploy
+        run: |
+          unzip "${{ needs.build.outputs.zip_name }}" -d .
+          mv package/app deploy
 
       - name: Authenticate GCP
         uses: google-github-actions/auth@v3
