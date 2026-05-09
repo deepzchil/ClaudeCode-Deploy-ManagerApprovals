@@ -144,7 +144,7 @@ jobs:
           TS=${{ steps.time.outputs.ts }}
           VERSION=${{ steps.version.outputs.version }}
 
-          NAME="build_${ENV}_${TS}_v${VERSION}.zip"
+          NAME="build_${ENV}_${TS}_${VERSION}.zip"
           echo "zip_name=$NAME" >> $GITHUB_OUTPUT
 
           # Detect Angular build folder automatically
@@ -160,6 +160,7 @@ jobs:
         with:
           name: ${{ steps.zip.outputs.zip_name }}
           path: ${{ steps.zip.outputs.zip_name }}
+          retention-days: 1
 
 # -------------------------------------------------------
 # 3️⃣ LEAD EMAIL (TEST + PROD)
@@ -242,14 +243,19 @@ jobs:
       - run: echo "Waiting for Manager Approval"
 
 # -------------------------------------------------------
-# 7️⃣ DEPLOY TO GCS
+# 7️⃣ DEPLOY (ALL ENVIRONMENTS)
 # -------------------------------------------------------
   deploy:
     needs:
       - build
       - lead-approval
+      - manager-approval
 
-    if: always() && (github.event.inputs.environment == 'cloud-dev' || needs.lead-approval.result == 'success')
+    if: |
+      github.event.inputs.environment == 'cloud-dev' ||
+      (github.event.inputs.environment == 'cloud-test' && needs.lead-approval.result == 'success') ||
+      (github.event.inputs.environment == 'cloud-prod' && needs.manager-approval.result == 'success')
+
     runs-on: ubuntu-latest
 
     outputs:
@@ -265,9 +271,6 @@ jobs:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - uses: google-github-actions/setup-gcloud@v3
-
-      - name: Check ZIP content
-        run: unzip -l ${{ needs.build.outputs.zip_name }}
 
       - name: Upload ZIP
         run: |
@@ -285,22 +288,12 @@ jobs:
           done
 
       - name: Extract ZIP
-        run: |
-          unzip ${{ needs.build.outputs.zip_name }} -d deploy
-
-      - name: Debug extracted files
-        run: |
-          echo "Files inside deploy:"
-          ls -R deploy
+        run: unzip ${{ needs.build.outputs.zip_name }} -d deploy
 
       - name: Deploy to GCS
         run: |
           ENV=${{ github.event.inputs.environment }}
           gsutil -m rsync -r deploy gs://${{ env.BUCKET_NAME }}/$ENV/app/
-
-      - name: Set Website
-        run: |
-          gsutil web set -m index.html -e index.html gs://${{ env.BUCKET_NAME }}
 
       - id: url
         run: |
@@ -308,7 +301,7 @@ jobs:
           echo "url=https://storage.googleapis.com/${{ env.BUCKET_NAME }}/$ENV/app/index.html" >> $GITHUB_OUTPUT
 
 # -------------------------------------------------------
-# 8️⃣ SUCCESS MAIL
+# 9️⃣ SUCCESS MAIL
 # -------------------------------------------------------
   success-mail:
     needs: [deploy, build]
@@ -332,7 +325,7 @@ jobs:
             <a href="${{ needs.deploy.outputs.url }}">Open App</a>
 
 # -------------------------------------------------------
-# 9️⃣ FAILURE MAIL
+# 10️⃣ FAILURE MAIL
 # -------------------------------------------------------
   failure-mail:
     if: failure()
