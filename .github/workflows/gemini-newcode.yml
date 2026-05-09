@@ -182,30 +182,51 @@ jobs:
 
             core.setOutput("resolved_issues", output);
 
-      - name: Create ZIP Artifact (STANDARD STRUCTURE)
-        id: create_zip
+      - name: DEBUG DIST
         run: |
-          ENV=${{ github.event.inputs.environment }}
-          VERSION=${{ steps.version.outputs.version }}
-          TS=${{ steps.time.outputs.timestamp }}
+          echo "==== DIST STRUCTURE ===="
+          ls -R dist || true
+
+      - name: Create ZIP Artifact (FINAL FIX - ROBUST)
+        id: create_zip
+        shell: bash
+        run: |
+          set -e
+
+          ENV="${{ github.event.inputs.environment }}"
+          VERSION="${{ steps.version.outputs.version }}"
+          TS="${{ steps.time.outputs.timestamp }}"
 
           ZIP_NAME="build_${ENV}_${TS}_${VERSION}.zip"
           echo "zip_name=$ZIP_NAME" >> $GITHUB_OUTPUT
 
-          BUILD_DIR=$(find dist -type f -name index.html | head -n 1 | xargs dirname)
+          echo "🔍 Locating Angular build output..."
 
-          if [ -z "$BUILD_DIR" ]; then
-            echo "❌ Angular build not found"
-            ls -R .
+          # ✅ Find index.html safely
+          INDEX_FILE=$(find dist -type f -name index.html | head -n 1)
+
+          if [ -z "$INDEX_FILE" ]; then
+            echo "❌ ERROR: index.html not found inside dist"
+            echo "👉 Dumping dist folder:"
+            ls -R dist || true
             exit 1
           fi
 
-          # ✅ Create clean packaging directory
-          mkdir package
-          cp -r $BUILD_DIR package/app
+          BUILD_DIR=$(dirname "$INDEX_FILE")
 
-          # ✅ Zip WITH ROOT FOLDER (important)
-          zip -r $ZIP_NAME package
+          echo "✅ Build directory found: $BUILD_DIR"
+
+          # ✅ Clean packaging
+          rm -rf package
+          mkdir -p package/app
+
+          cp -r "$BUILD_DIR"/* package/app/
+
+          echo "📦 Creating ZIP..."
+          zip -r "$ZIP_NAME" package
+
+          echo "✅ ZIP created: $ZIP_NAME"
+          ls -lh "$ZIP_NAME"
 
       - name: Upload Final Artifact
         if: success()
@@ -213,7 +234,6 @@ jobs:
         with:
           name: build-output
           path: ${{ steps.create_zip.outputs.zip_name }}
-          retention-days: 1
           if-no-files-found: error
           overwrite: true
 
@@ -399,7 +419,7 @@ jobs:
 
       - name: Extract Artifact
         run: |
-          unzip "${{ needs.build.outputs.zip_name }}" -d .
+          unzip "${{ needs.build.outputs.zip_name }}"
           mv package/app deploy
 
       - name: Authenticate GCP
