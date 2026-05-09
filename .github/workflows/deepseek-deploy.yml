@@ -1,4 +1,4 @@
-name: 🚀 Enterprise Angular CI/CD Pipeline (Angular Build + Artifact upload+ ZIP and upload to GCP and PUBLISH)
+name: HMS Ultimate CI/CD Pipeline (Fixed)
 
 on:
   workflow_dispatch:
@@ -11,25 +11,36 @@ on:
           - cloud-dev
           - cloud-test
           - cloud-prod
-      version:
-        description: "Release Version"
-        required: true
-        default: "1.0.0.0"
 
 env:
   PROJECT_NAME: HospitalManagementSystem
   BUCKET_NAME: claudedeployapp
   NODE_VERSION: 20
 
+  LEAD_EMAIL: ${{ secrets.LEAD_EMAIL }}
+  LEAD_NAME: ${{ secrets.LEAD_NAME }}
+
+  MANAGER_EMAIL: ${{ secrets.MANAGER_EMAIL }}
+  MANAGER_NAME: ${{ secrets.MANAGER_NAME }}
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: ${{ github.event.inputs.environment }}
+  cancel-in-progress: false
+
 jobs:
 
-# =========================================================
-# 🔍 SET ENVIRONMENT + BRANCH
-# =========================================================
+# -------------------------------------------------------
+# 1️⃣ SET ENVIRONMENT
+# -------------------------------------------------------
   setup:
     runs-on: ubuntu-latest
     outputs:
       branch: ${{ steps.set.outputs.branch }}
+
     steps:
       - id: set
         run: |
@@ -43,237 +54,287 @@ jobs:
             echo "branch=main" >> $GITHUB_OUTPUT
           fi
 
-# =========================================================
-# 🏗️ BUILD ANGULAR APP
-# =========================================================
+# -------------------------------------------------------
+# 2️⃣ BUILD + ANALYSIS
+# -------------------------------------------------------
   build:
     runs-on: ubuntu-latest
     needs: setup
+
     outputs:
-      zip_name: ${{ steps.create_zip.outputs.zip_name }}
+      zip_name: ${{ steps.zip.outputs.zip_name }}
+      commit_message: ${{ steps.commit.outputs.msg }}
+      changed_files: ${{ steps.diff.outputs.files }}
+      change_stats: ${{ steps.stats.outputs.stats }}
+      resolved_issues: ${{ steps.issues.outputs.issues }}
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: ${{ needs.setup.outputs.branch }}
+          fetch-depth: 5
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Install Dependencies
-        run: npm install
+      - run: npm install
 
-      - name: Build Angular App
-        run: npm run build -- --configuration production
+      - run: npm run build -- --configuration production
 
-      - name: Generate Timestamp
-        id: time
-        run: echo "timestamp=$(date +'%Y%m%d_%H%M%S')" >> $GITHUB_OUTPUT
+      - id: time
+        run: echo "ts=$(date +'%Y%m%d_%H%M%S')" >> $GITHUB_OUTPUT
+        
+        
+      - id: version  #(Generate Auto Version (Run + Date))
+        run: |
+          VERSION="v1.0.${{ github.run_number }}_$(date +'%Y%m%d')"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Create ZIP Artifact
-        id: create_zip
+      - id: commit
+        run: |
+          echo "msg<<EOF" >> $GITHUB_OUTPUT
+          git log -1 --pretty=%B >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - id: diff
+        run: |
+          echo "files<<EOF" >> $GITHUB_OUTPUT
+          git diff --name-only HEAD~1 HEAD >> $GITHUB_OUTPUT || true
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - id: stats
+        run: |
+          echo "stats<<EOF" >> $GITHUB_OUTPUT
+          git diff --stat HEAD~1 HEAD >> $GITHUB_OUTPUT || true
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - id: issues
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { execSync } = require('child_process');
+            const commits = execSync("git log -10 --pretty=%B").toString();
+            const matches = [...commits.matchAll(/#(\d+)/g)];
+            const unique = [...new Set(matches.map(m => m[1]))];
+
+            if (unique.length === 0) {
+              core.setOutput("issues", "No linked issues found.");
+              return;
+            }
+
+            let out = "Resolved Issues:\n\n";
+            for (const i of unique) {
+              try {
+                const issue = await github.rest.issues.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: parseInt(i)
+                });
+                out += `• #${i} - ${issue.data.title}\n`;
+              } catch {
+                out += `• #${i}\n`;
+              }
+            }
+            core.setOutput("issues", out);
+
+      - id: zip
         run: |
           ENV=${{ github.event.inputs.environment }}
-          VERSION=${{ github.event.inputs.version }}
-          TS=${{ steps.time.outputs.timestamp }}
+          TS=${{ steps.time.outputs.ts }}
+          VERSION=${{ steps.version.outputs.version }}
 
-          ZIP_NAME="build_${ENV}_${TS}_v${VERSION}.zip"
-          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
-          echo "zip_name=$ZIP_NAME" >> $GITHUB_OUTPUT
+          NAME="build_${ENV}_${TS}_v${VERSION}.zip"
+          echo "zip_name=$NAME" >> $GITHUB_OUTPUT
 
           cd dist
-          zip -r ../$ZIP_NAME .
+          zip -r ../$NAME .
           cd ..
 
-      - name: Upload Artifact to GitHub
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.create_zip.outputs.zip_name }}
-          path: ${{ steps.create_zip.outputs.zip_name }}
+          name: ${{ steps.zip.outputs.zip_name }}
+          path: ${{ steps.zip.outputs.zip_name }}
 
-# =========================================================
-# ☁️ UPLOAD TO GCP + CLEANUP + EXTRACT
-# =========================================================
-  deploy:
-    runs-on: ubuntu-latest
+# -------------------------------------------------------
+# 3️⃣ LEAD EMAIL (TEST + PROD)
+# -------------------------------------------------------
+  lead-mail:
+    if: github.event.inputs.environment != 'cloud-dev'
     needs: build
-    outputs:
-      deploy_url: ${{ steps.output_url.outputs.deploy_url }}
-    env:
-      ZIP_NAME: ${{ needs.build.outputs.zip_name }}
-
-    environment: ${{ github.event.inputs.environment }}
+    runs-on: ubuntu-latest
 
     steps:
-      - name: Download Artifact
-        uses: actions/download-artifact@v4
+      - uses: dawidd6/action-send-mail@v5
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+
+          subject: "Lead Approval Required"
+
+          to: ${{ env.LEAD_EMAIL }}
+          cc: ${{ secrets.TEAM_CC }}
+          from: ${{ secrets.SMTP_USERNAME }}
+
+          html_body: |
+            <h3>Build Ready for Approval</h3>
+            <p><b>Commit:</b> ${{ needs.build.outputs.commit_message }}</p>
+            <pre>${{ needs.build.outputs.resolved_issues }}</pre>
+
+# -------------------------------------------------------
+# 4️⃣ LEAD APPROVAL
+# -------------------------------------------------------
+  lead-approval:
+    if: github.event.inputs.environment != 'cloud-dev'
+    needs: lead-mail
+    runs-on: ubuntu-latest
+
+    environment:
+      name: lead-approval
+
+    steps:
+      - run: echo "Waiting for Lead Approval"
+
+# -------------------------------------------------------
+# 5️⃣ MANAGER EMAIL (PROD ONLY)
+# -------------------------------------------------------
+  manager-mail:
+    if: github.event.inputs.environment == 'cloud-prod'
+    needs: [lead-approval, build]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: dawidd6/action-send-mail@v5
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+
+          subject: "Manager Approval Required"
+
+          to: ${{ env.MANAGER_EMAIL }}
+          from: ${{ secrets.SMTP_USERNAME }}
+
+          html_body: |
+            <h3>Production Approval Needed</h3>
+            <pre>${{ needs.build.outputs.resolved_issues }}</pre>
+
+# -------------------------------------------------------
+# 6️⃣ MANAGER APPROVAL
+# -------------------------------------------------------
+  manager-approval:
+    if: github.event.inputs.environment == 'cloud-prod'
+    needs: manager-mail
+    runs-on: ubuntu-latest
+
+    environment:
+      name: production
+
+    steps:
+      - run: echo "Waiting for Manager Approval"
+
+# -------------------------------------------------------
+# 7️⃣ DEPLOY TO GCS
+# -------------------------------------------------------
+  deploy:
+    needs:
+      - build
+      - lead-approval
+      - manager-approval
+    if: always() && (github.event.inputs.environment == 'cloud-dev' || needs.lead-approval.result == 'success')
+    runs-on: ubuntu-latest
+
+    outputs:
+      url: ${{ steps.url.outputs.url }}
+
+    steps:
+      - uses: actions/download-artifact@v4
         with:
           name: ${{ needs.build.outputs.zip_name }}
 
-      - name: Authenticate GCP
-        uses: google-github-actions/auth@v2
+      - uses: google-github-actions/auth@v3
         with:
-          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      - name: Setup gcloud
-        uses: google-github-actions/setup-gcloud@v2
+      - uses: google-github-actions/setup-gcloud@v3
 
-      - name: Upload to GCS
+      - name: Upload ZIP
         run: |
           ENV=${{ github.event.inputs.environment }}
-          gsutil cp $ZIP_NAME gs://${{ env.BUCKET_NAME }}/$ENV/
+          gsutil cp ${{ needs.build.outputs.zip_name }} gs://${{ env.BUCKET_NAME }}/$ENV/
 
-      - name: Keep Only Last 5 Files
+      - name: Keep Last 5 Builds
         run: |
           ENV=${{ github.event.inputs.environment }}
-
           FILES=$(gsutil ls gs://${{ env.BUCKET_NAME }}/$ENV/ | sort -r)
           COUNT=0
-
-          for FILE in $FILES; do
+          for f in $FILES; do
             COUNT=$((COUNT+1))
-            if [ $COUNT -gt 5 ]; then
-              gsutil rm $FILE
-            fi
+            if [ $COUNT -gt 5 ]; then gsutil rm $f; fi
           done
 
-      - name: Extract ZIP in GCS
+      - name: Extract
         run: |
-          ENV=${{ github.event.inputs.environment }}
-          mkdir deploy
-
-          unzip $ZIP_NAME -d deploy
-
+          unzip ${{ needs.build.outputs.zip_name }} -d deploy
           gsutil -m rsync -r -d deploy gs://${{ env.BUCKET_NAME }}/$ENV/app/
 
-      - name: Set Website Config
+      - name: Set Website
         run: |
           gsutil web set -m index.html -e index.html gs://${{ env.BUCKET_NAME }}
 
-      - name: Output URL
-        id: output_url
+      - id: url
         run: |
           ENV=${{ github.event.inputs.environment }}
-          URL="https://storage.googleapis.com/${{ env.BUCKET_NAME }}/$ENV/app/index.html"
-          echo "deploy_url=$URL" >> $GITHUB_OUTPUT
-          echo "DEPLOY_URL=$URL" >> $GITHUB_ENV
+          echo "url=https://storage.googleapis.com/${{ env.BUCKET_NAME }}/$ENV/app/index.html" >> $GITHUB_OUTPUT
 
-# =========================================================
-# 📧 EMAIL - TEST ENV (LEAD APPROVAL)
-# =========================================================
-  notify-test:
+# -------------------------------------------------------
+# 8️⃣ SUCCESS MAIL
+# -------------------------------------------------------
+  success-mail:
+    needs: [deploy, build]
     runs-on: ubuntu-latest
-    needs: deploy
-    if: github.event.inputs.environment == 'cloud-test'
-    env:
-      DEPLOY_URL: ${{ needs.deploy.outputs.deploy_url }}
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-      - name: Get commit details
-        id: commit_details
-        run: |
-          COMMIT_MESSAGE=$(git log -1 --pretty=%B)
-          COMMIT_AUTHOR=$(git log -1 --pretty=%an)
-          echo "commit_author=$COMMIT_AUTHOR" >> $GITHUB_OUTPUT
-          echo "commit_message<<EOF" >> $GITHUB_OUTPUT
-          echo "$COMMIT_MESSAGE" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-      - name: Send Email to Lead
-        uses: dawidd6/action-send-mail@v3
+      - uses: dawidd6/action-send-mail@v5
         with:
           server_address: smtp.gmail.com
           server_port: 587
           username: ${{ secrets.SMTP_USERNAME }}
           password: ${{ secrets.SMTP_PASSWORD }}
-          subject: "🔍 TEST Deployment Approval Required"
-          to: ${{ secrets.LEAD_EMAIL }}
-          from: CI-CD System
-          html_body: |
-            <h2>Test Deployment Approval Required</h2>
-            <p><b>Environment:</b> TEST</p>
-            <p><b>Deployment URL:</b> ${{ env.DEPLOY_URL }}</p>
-            <p><b>Status:</b> Awaiting approval</p>
-            <table border="1" cellpadding="8">
-              <tr><th>Commit</th><th>Author</th><th>Message</th></tr>
-              <tr>
-                <td>${{ github.sha }}</td>
-                <td>${{ steps.commit_details.outputs.commit_author }}</td>
-                <td>${{ steps.commit_details.outputs.commit_message }}</td>
-              </tr>
-            </table>
 
-      - name: Notify Manager
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.gmail.com
-          server_port: 587
-          username: ${{ secrets.SMTP_USERNAME }}
-          password: ${{ secrets.SMTP_PASSWORD }}
-          subject: "ℹ️ TEST Deployment Initiated"
-          to: ${{ secrets.MANAGER_EMAIL }}
-          from: CI-CD System
-          html_body: |
-            <h3>Test Deployment in Progress</h3>
-            <p>Deployment is awaiting lead approval.</p>
+          subject: "Deployment Successful"
 
-# =========================================================
-# 📧 EMAIL - PROD APPROVAL + RESULT
-# =========================================================
-  notify-prod:
-    runs-on: ubuntu-latest
-    needs: deploy
-    if: github.event.inputs.environment == 'cloud-prod'
-    env:
-      DEPLOY_URL: ${{ needs.deploy.outputs.deploy_url }}
-
-    steps:
-      - name: Approval Request to Manager
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.gmail.com
-          server_port: 587
-          username: ${{ secrets.SMTP_USERNAME }}
-          password: ${{ secrets.SMTP_PASSWORD }}
+          to: ${{ env.MANAGER_EMAIL }}
           from: ${{ secrets.SMTP_USERNAME }}
-          subject: "🚨 PROD Deployment Approval Required"
-          to: ${{ secrets.MANAGER_EMAIL }}
-          html_body: |
-            <h2>Production Deployment Approval Needed</h2>
-            <p><b>Release Version:</b> ${{ github.event.inputs.version }}</p>
-            <p><b>Status:</b> Pending Approval</p>
 
-      - name: Success Email
-        if: success()
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.gmail.com
-          username: ${{ secrets.SMTP_USERNAME }}
-          password: ${{ secrets.SMTP_PASSWORD }}
-          from: ${{ secrets.SMTP_USERNAME }}
-          subject: "✅ PROD Deployment Successful"
-          to: ${{ secrets.MANAGER_EMAIL }}
           html_body: |
             <h2>Deployment Successful</h2>
-            <p>Application is LIVE</p>
-            <p><a href="${{ env.DEPLOY_URL }}">Open Application</a></p>
+            <a href="${{ needs.deploy.outputs.url }}">Open App</a>
 
-      - name: Failure Email
-        if: failure()
-        uses: dawidd6/action-send-mail@v3
+# -------------------------------------------------------
+# 9️⃣ FAILURE MAIL
+# -------------------------------------------------------
+  failure-mail:
+    if: failure()
+    needs: [build]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: dawidd6/action-send-mail@v5
         with:
           server_address: smtp.gmail.com
+          server_port: 587
           username: ${{ secrets.SMTP_USERNAME }}
           password: ${{ secrets.SMTP_PASSWORD }}
+
+          subject: "Deployment Failed"
+
+          to: ${{ env.MANAGER_EMAIL }}
           from: ${{ secrets.SMTP_USERNAME }}
-          subject: "❌ PROD Deployment Failed"
-          to: ${{ secrets.MANAGER_EMAIL }}
+
           html_body: |
             <h2>Deployment Failed</h2>
-            <p>Please check logs in GitHub Actions</p>
+            <p>Check GitHub Actions logs.</p>
