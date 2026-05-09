@@ -102,10 +102,10 @@ jobs:
         id: time
         run: echo "timestamp=$(date +'%Y%m%d_%H%M%S')" >> $GITHUB_OUTPUT
 
-      - name: Generate Auto Version
+      - name: Generate Version (WITH v PREFIX)
         id: version
         run: |
-          VERSION="1.0.${{ github.run_number }}"
+          VERSION="v1.0.${{ github.run_number }}"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Read Commit Message
@@ -187,9 +187,8 @@ jobs:
           echo "==== DIST STRUCTURE ===="
           ls -R dist || true
 
-      - name: Create ZIP Artifact (FINAL FIX - ROBUST)
+      - name: Create ZIP Artifact (FINAL NAMING FIX)
         id: create_zip
-        shell: bash
         run: |
           set -e
 
@@ -200,42 +199,29 @@ jobs:
           ZIP_NAME="build_${ENV}_${TS}_${VERSION}.zip"
           echo "zip_name=$ZIP_NAME" >> $GITHUB_OUTPUT
 
-          echo "🔍 Locating Angular build output..."
+          echo "📦 Using Angular output: dist/app"
 
-          # ✅ Find index.html safely
-          INDEX_FILE=$(find dist -type f -name index.html | head -n 1)
-
-          if [ -z "$INDEX_FILE" ]; then
-            echo "❌ ERROR: index.html not found inside dist"
-            echo "👉 Dumping dist folder:"
+          if [ ! -f "dist/app/index.html" ]; then
+            echo "❌ Build output missing!"
             ls -R dist || true
             exit 1
           fi
 
-          BUILD_DIR=$(dirname "$INDEX_FILE")
-
-          echo "✅ Build directory found: $BUILD_DIR"
-
-          # ✅ Clean packaging
-          rm -rf package
           mkdir -p package/app
+          cp -r dist/app/* package/app/
 
-          cp -r "$BUILD_DIR"/* package/app/
-
-          echo "📦 Creating ZIP..."
           zip -r "$ZIP_NAME" package
 
-          echo "✅ ZIP created: $ZIP_NAME"
-          ls -lh "$ZIP_NAME"
+          echo "✅ ZIP created:"
+          echo "$ZIP_NAME"
 
       - name: Upload Final Artifact
-        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: build-output
+          name: ${{ steps.create_zip.outputs.zip_name }}
           path: ${{ steps.create_zip.outputs.zip_name }}
-          if-no-files-found: error
           overwrite: true
+          retention-days: 1
 
 # -------------------------------------------------
 # JOB 3 - LEAD APPROVAL EMAIL
