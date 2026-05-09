@@ -218,7 +218,7 @@ jobs:
       - name: Upload Final Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.create_zip.outputs.zip_name }}
+          name: build-output   # ✅ FIXED NAME
           path: ${{ steps.create_zip.outputs.zip_name }}
           overwrite: true
           retention-days: 1
