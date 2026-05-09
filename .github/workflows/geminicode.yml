@@ -368,26 +368,26 @@ jobs:
           ENV=${{ github.event.inputs.environment }}
           gsutil cp $ZIP_NAME gs://${{ env.BUCKET_NAME }}/$ENV/
 
-      - name: Keep Only Last 5 Files
+      - name: Keep Only Last 5 ZIP Builds
         run: |
           ENV=${{ github.event.inputs.environment }}
-          PREFIX="gs://${{ env.BUCKET_NAME }}/$ENV/app/"
 
-          FILES=$(gsutil ls $PREFIX | sort -r || true)
+          gsutil ls gs://${{ env.BUCKET_NAME }}/$ENV/*.zip \
+            | sort -V -r \
+            | tail -n +6 \
+            | xargs -r gsutil rm
 
-          COUNT=0
-          for FILE in $FILES; do
-            COUNT=$((COUNT+1))
-            if [ $COUNT -gt 5 ]; then
-              gsutil rm "$FILE" || true
-            fi
-          done
-
-      - name: Extract and Deploy ZIP to GCS
+      - name: Extract correct build folder
         run: |
           ENV=${{ github.event.inputs.environment }}
           mkdir deploy
-          unzip $ZIP_NAME -d deploy
+
+          # COPY ONLY INNER BUILD FOLDER CONTENT
+          cp -r dist/hms-app/browser/* deploy/
+
+      - name: Deploy ZIP to GCS
+        run: |
+          ENV=${{ github.event.inputs.environment }}
           gsutil -m rsync -r -d deploy gs://${{ env.BUCKET_NAME }}/$ENV/app/
 
       - name: Set Website Config
