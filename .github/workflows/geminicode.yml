@@ -87,6 +87,8 @@ jobs:
 
       - name: Build Angular App
         run: npm run build -- --configuration production
+             ls
+             ls dist || echo "DIST NOT CREATED"
 
       - name: Generate Timestamp
         id: time
@@ -362,6 +364,12 @@ jobs:
       ZIP_NAME: ${{ needs.build.outputs.zip_name }}
 
     steps:
+
+      - name: Debug Workspace
+        run: |
+          echo "=== ROOT STRUCTURE ==="
+          ls -R .
+
       - name: Download Artifact
         uses: actions/download-artifact@v4
         with:
@@ -389,12 +397,20 @@ jobs:
             | tail -n +6 \
             | xargs -r gsutil rm
 
-      - name: Deploy to GCS (Clean)
+      - name: Deploy to GCS (Safe)
         run: |
           ENV=${{ github.event.inputs.environment }}
 
-          # find Angular output dynamically
-          BUILD_DIR=$(find dist -type f -name index.html | head -n 1 | xargs dirname)
+          echo "Searching for Angular build output..."
+
+          BUILD_DIR=$(find . -type f -name index.html | grep -E "dist|browser|build" | head -n 1 | xargs dirname || true)
+
+          if [ -z "$BUILD_DIR" ]; then
+           echo "❌ ERROR: Build output not found"
+           echo "Listing full workspace:"
+           ls -R .
+           exit 1
+          fi
 
           echo "Deploying from: $BUILD_DIR"
 
