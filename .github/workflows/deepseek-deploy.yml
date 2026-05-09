@@ -154,7 +154,7 @@ jobs:
 
           cd $BUILD_PATH
           zip -r ../../../$NAME .
-          cd -s
+          cd -
 
       - uses: actions/upload-artifact@v4
         with:
