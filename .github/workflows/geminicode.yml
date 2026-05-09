@@ -161,15 +161,27 @@ jobs:
             }
             core.setOutput("resolved_issues", output);
 
-      - name: Create ZIP Artifact
+      - name: Create ZIP Artifact (Flattened)
         id: create_zip
         run: |
           ENV=${{ github.event.inputs.environment }}
           VERSION=${{ steps.version.outputs.version }}
           TS=${{ steps.time.outputs.timestamp }}
-          ZIP_NAME="build_${ENV}_${TS}_v${VERSION}.zip"
+
+          ZIP_NAME="build_${ENV}_${TS}_${VERSION}.zip"
           echo "zip_name=$ZIP_NAME" >> $GITHUB_OUTPUT
-          cd dist
+
+          mkdir temp_zip
+
+          # Find Angular build output
+          BUILD_DIR=$(find dist -type f -name index.html | head -n 1 | xargs dirname)
+
+          echo "Using build folder: $BUILD_DIR"
+
+          # COPY ONLY FILES (NOT FOLDERS)
+          cp $BUILD_DIR/* temp_zip/
+
+          cd temp_zip
           zip -r ../$ZIP_NAME .
           cd ..
 
@@ -377,23 +389,16 @@ jobs:
             | tail -n +6 \
             | xargs -r gsutil rm
 
-      - name: Extract Build Output Safely
+      - name: Deploy to GCS (Clean)
         run: |
           ENV=${{ github.event.inputs.environment }}
 
-          mkdir deploy
-
-          # Find index.html dynamically
+          # find Angular output dynamically
           BUILD_DIR=$(find dist -type f -name index.html | head -n 1 | xargs dirname)
 
-          echo "Build directory found: $BUILD_DIR"
+          echo "Deploying from: $BUILD_DIR"
 
-          cp -r "$BUILD_DIR"/* deploy/
-
-      - name: Deploy ZIP to GCS
-        run: |
-          ENV=${{ github.event.inputs.environment }}
-          gsutil -m rsync -r -d deploy gs://${{ env.BUCKET_NAME }}/$ENV/app/
+          gsutil -m rsync -r -d "$BUILD_DIR/" gs://${{ env.BUCKET_NAME }}/$ENV/app/
 
       - name: Set Website Config
         run: |
