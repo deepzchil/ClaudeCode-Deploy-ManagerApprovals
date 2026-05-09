@@ -163,6 +163,15 @@ jobs:
             }
             core.setOutput("resolved_issues", output);
 
+      - name: Download Build Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-output
+
+      # (optional debug step)
+      - name: Debug Files
+        run: ls -R .
+
       - name: Create ZIP Artifact (Flattened)
         id: create_zip
         run: |
@@ -174,6 +183,7 @@ jobs:
           echo "zip_name=$ZIP_NAME" >> $GITHUB_OUTPUT
 
           mkdir temp_zip
+          
 
           # Find Angular build output
           BUILD_DIR=$(find dist -type f -name index.html | head -n 1 | xargs dirname)
