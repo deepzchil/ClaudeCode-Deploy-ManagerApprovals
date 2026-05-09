@@ -377,13 +377,18 @@ jobs:
             | tail -n +6 \
             | xargs -r gsutil rm
 
-      - name: Extract correct build folder
+      - name: Extract Build Output Safely
         run: |
           ENV=${{ github.event.inputs.environment }}
+
           mkdir deploy
 
-          # COPY ONLY INNER BUILD FOLDER CONTENT
-          cp -r dist/hms-app/browser/* deploy/
+          # Find index.html dynamically
+          BUILD_DIR=$(find dist -type f -name index.html | head -n 1 | xargs dirname)
+
+          echo "Build directory found: $BUILD_DIR"
+
+          cp -r "$BUILD_DIR"/* deploy/
 
       - name: Deploy ZIP to GCS
         run: |
