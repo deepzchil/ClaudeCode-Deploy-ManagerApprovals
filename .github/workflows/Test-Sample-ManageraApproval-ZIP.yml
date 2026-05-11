@@ -448,14 +448,18 @@ jobs:
         run: |
           ENV=${{ github.event.inputs.environment }}
 
-          FILES=$(gsutil ls -l gs://$BUCKET_NAME/artifacts/$ENV/ | sort -k2 -r | awk '{print $3}')
+          FILES=$(gsutil ls -l gs://$BUCKET_NAME/artifacts/$ENV/ \
+            | grep '\.zip$' \
+            | sort -k2 -r \
+            | awk '{print $3}')
 
           COUNT=0
           for FILE in $FILES; do
-           COUNT=$((COUNT+1))
-           if [ $COUNT -gt 5 ]; then
-            gsutil rm "$FILE"
-           fi
+            COUNT=$((COUNT+1))
+            if [ $COUNT -gt 5 ]; then
+              echo "Deleting $FILE"
+              gsutil rm "$FILE"
+            fi
           done
 
       - name: Set Website
