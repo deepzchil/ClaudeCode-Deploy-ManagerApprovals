@@ -299,9 +299,6 @@ jobs:
               <h3 style="color:#0d6efd;">Change Statistics</h3>
               <pre style="background:#f8f9fa;padding:12px;border:1px solid #ddd;">${{ needs.build.outputs.change_stats }}</pre>
 
-              <h3 style="color:#0d6efd;">Code Changes Preview</h3>
-              <pre style="background:#f8f9fa;padding:12px;border:1px solid #ddd;white-space:pre-wrap;">${{ needs.build.outputs.code_changes }}</pre>
-
               <h3 style="color:#0d6efd;">Approval Steps</h3>
               <ol>
                 <li>Open GitHub Repository</li>
@@ -367,7 +364,7 @@ jobs:
                 <tr><td><b>Environment</b></td><td>${{ github.event.inputs.environment }}</td></tr>
               </table>
 
-              <h3 style="color:#198754;margin-top:25px;">Resolved Issues</h3>
+              <h3 style="color:#dc3545;margin-top:25px;">Resolved Issues Included in Release</h3>
               <pre style="background:#f8f9fa;padding:16px;border:1px solid #dee2e6;white-space:pre-wrap;">${{ needs.build.outputs.resolved_issues }}</pre>
 
               <h3 style="color:#0d6efd;margin-top:25px;">Approval Steps</h3>
