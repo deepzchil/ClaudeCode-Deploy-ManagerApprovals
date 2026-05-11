@@ -207,50 +207,45 @@ jobs:
 
           mkdir -p release
 
-          # 🔥 Detect Angular dist folder
+          echo "==== DIST CONTENT ===="
+          ls -R dist || true
+
           DIST_DIR=$(find dist -mindepth 1 -maxdepth 1 -type d | head -n 1)
 
           if [ -z "$DIST_DIR" ]; then
-           echo "❌ No Angular dist folder found!"
-           exit 1
+            echo "❌ No dist folder found"
+            exit 1
           fi
 
-          echo "Using dist folder: $DIST_DIR"
+          echo "Using DIST: $DIST_DIR"
 
-          # 🔥 Handle Angular 17+ browser folder
           BROWSER_DIR=$(find "$DIST_DIR" -type d -name browser | head -n 1)
 
           if [ -n "$BROWSER_DIR" ]; then
-            echo "Using browser folder: $BROWSER_DIR"
             cp -r "$BROWSER_DIR"/* release/
           else
             cp -r "$DIST_DIR"/* release/
           fi
 
-          # ✅ Validate index
           if [ ! -f "release/index.html" ]; then
-            echo "❌ index.html missing!"
-            ls -R release
+            echo "❌ index.html missing"
             exit 1
           fi
 
-          # 🔥 ENV
           ENV="${{ github.event.inputs.environment }}"
-
-          # 🔥 VERSION (with v prefix + run number)
+          TS=$(date +%Y%m%d_%H%M%S)
           VERSION="v1.0.0.${{ github.run_number }}"
 
-          # 🔥 TIMESTAMP (YYYYMMDD_HHMMSS)
-          TS=$(date +%Y%m%d_%H%M%S)
-
-          # ✅ FINAL ZIP NAME
           ZIP="build_${ENV}_${TS}_${VERSION}.zip"
-
-          echo "📦 Creating ZIP: $ZIP"
 
           zip -r "$ZIP" release
 
           echo "zip_name=$ZIP" >> $GITHUB_OUTPUT
+
+      - name: Verify ZIP exists
+        run: |
+          echo "ZIP FILE: ${{ steps.zip.outputs.zip_name }}"
+          ls -lh
 
 # -------------------------------------------------
 # JOB 9 - UPLOAD ARTIFACT
@@ -432,24 +427,47 @@ jobs:
         with:
           name: ${{ needs.build.outputs.zip_name }}
 
-      - name: Extract ZIP (FIXED)
-        run: |
-          unzip "${{ needs.build.outputs.zip_name }}"
-          mv release deploy
-
-          echo "==== DEPLOY STRUCTURE ===="
-          ls -R deploy
-
       - uses: google-github-actions/auth@v3
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - uses: google-github-actions/setup-gcloud@v3
 
-      - name: Deploy
+      - name: Upload ZIP to GCS
+        run: |
+          ENV=${{ github.event.inputs.environment }}
+          ZIP=${{ needs.build.outputs.zip_name }}
+
+          echo "Uploading ZIP to artifacts/$ENV/"
+          gsutil cp "$ZIP" gs://$BUCKET_NAME/artifacts/$ENV/$ZIP
+
+      - name: Extract ZIP
+        run: |
+          unzip "${{ needs.build.outputs.zip_name }}"
+          mv release deploy
+
+      - name: Deploy App to GCS (NON-PROD DEV/TEST)
         run: |
           ENV=${{ github.event.inputs.environment }}
           gsutil -m rsync -r -d deploy gs://$BUCKET_NAME/$ENV/
+
+      - name: Cleanup old ZIPs(RETENTION POLICY - KEEP LAST 5 ZIPs ONLY)
+        run: |
+          ENV=${{ github.event.inputs.environment }}
+
+          FILES=$(gsutil ls -l gs://$BUCKET_NAME/artifacts/$ENV/ | sort -k2 -r | awk '{print $3}')
+
+          COUNT=0
+          for FILE in $FILES; do
+           COUNT=$((COUNT+1))
+           if [ $COUNT -gt 5 ]; then
+            gsutil rm "$FILE"
+           fi
+          done
+
+      - name: Set Website
+        run: |
+          gsutil web set -m index.html -e index.html gs://$BUCKET_NAME || true
 
       - name: Set Deployment URL
         id: set_url
@@ -473,20 +491,43 @@ jobs:
         with:
           name: ${{ needs.build.outputs.zip_name }}
 
-      - name: Extract ZIP
-        run: |
-          unzip "${{ needs.build.outputs.zip_name }}"
-          mv release deploy
-
       - uses: google-github-actions/auth@v3
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - uses: google-github-actions/setup-gcloud@v3
 
-      - name: Deploy
+      - name: Upload ZIP to GCS
         run: |
-          gsutil -m rsync -r -d deploy gs://$BUCKET_NAME/cloud-prod/
+          ENV=${{ github.event.inputs.environment }}
+          ZIP=${{ needs.build.outputs.zip_name }}
+
+          echo "Uploading ZIP to artifacts/$ENV/"
+          gsutil cp "$ZIP" gs://$BUCKET_NAME/artifacts/$ENV/$ZIP
+
+      - name: Extract ZIP
+        run: |
+          unzip "${{ needs.build.outputs.zip_name }}"
+          mv release deploy
+
+      - name: Deploy App to GCS (PROD)
+        run: |
+          ENV=${{ github.event.inputs.environment }}
+          gsutil -m rsync -r -d deploy gs://$BUCKET_NAME/$ENV/
+
+      - name: Cleanup old ZIPs(RETENTION POLICY - KEEP LAST 5 ZIPs ONLY)
+        run: |
+          ENV=${{ github.event.inputs.environment }}
+
+          FILES=$(gsutil ls -l gs://$BUCKET_NAME/artifacts/$ENV/ | sort -k2 -r | awk '{print $3}')
+
+          COUNT=0
+          for FILE in $FILES; do
+           COUNT=$((COUNT+1))
+           if [ $COUNT -gt 5 ]; then
+            gsutil rm "$FILE"
+           fi
+          done
 
       - name: Set Website
         run: |
