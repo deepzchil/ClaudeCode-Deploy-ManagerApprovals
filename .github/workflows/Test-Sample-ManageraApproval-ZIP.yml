@@ -1,4 +1,4 @@
-name: TESTING - CI/CD Pipeline (Fixed Angular + GCS + Approvals)
+name: WORKING 100% - CI/CD Pipeline (Fixed Angular + GCS + Approvals)
 
 on:
   workflow_dispatch:
@@ -149,7 +149,7 @@ jobs:
         run: |
           echo "code_changes=Source code updated and ready for deployment." >> $GITHUB_OUTPUT
 
-      - name: Fixed GitHub Issues
+      - name: Fixed GitHub Issues (CURRENT COMMIT ONLY)
         id: issues
         uses: actions/github-script@v8
         with:
@@ -158,22 +158,24 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
-            let commits = "";
+            // ✅ Get ONLY latest commit message
+            let commitMsg = "";
             try {
-              commits = execSync("git log -10 --pretty=%B").toString();
+              commitMsg = execSync("git log -1 --pretty=%B").toString();
             } catch (e) {
-              commits = "No commits found";
+              commitMsg = "";
             }
 
-            const matches = [...commits.matchAll(/#(\d+)/g)];
+            // ✅ Extract issue numbers like #123
+            const matches = [...commitMsg.matchAll(/#(\d+)/g)];
             const uniqueIssues = [...new Set(matches.map(m => m[1]))];
 
             if (uniqueIssues.length === 0) {
-              core.setOutput("resolved_issues", "No linked issues found.");
+              core.setOutput("resolved_issues", "No issues referenced in this commit.");
               return;
             }
 
-            let output = "Resolved Issues Included In This Release:\n\n";
+            let output = "Resolved Issues (Current Commit):\n\n";
 
             for (const issueNumber of uniqueIssues) {
               try {
@@ -182,6 +184,7 @@ jobs:
                   repo,
                   issue_number: parseInt(issueNumber)
                 });
+
                 output += `• #${issueNumber} - ${issue.data.title}\n`;
               } catch {
                 output += `• #${issueNumber} - Issue title unavailable\n`;
