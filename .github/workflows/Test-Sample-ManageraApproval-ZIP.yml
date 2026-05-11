@@ -70,7 +70,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           ref: ${{ needs.setup.outputs.branch }}
-          fetch-depth: 3
+          fetch-depth: 0
           
 # -------------------------------------------------
 # JOB 3 - NODE SETUP
@@ -127,34 +127,27 @@ jobs:
         id: commit
         shell: bash
         run: |
-          echo "commit_message<<EOF" >> $GITHUB_OUTPUT
-          git log -1 --pretty=%B || echo "Initial commit" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          MSG=$(git log -1 --pretty=%B || echo "No commit message")
+          echo "commit_message=$MSG" >> $GITHUB_OUTPUT
 
       - name: Detect Changed Files
         id: diff
         shell: bash
         run: |
-          echo "changed_files<<EOF" >> $GITHUB_OUTPUT
-          git diff --name-only HEAD~1 HEAD || echo "No diff available" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | tr '\n' ', ')
+          echo "changed_files=${FILES:-No files changed}" >> $GITHUB_OUTPUT
 
       - name: Change Statistics
         id: stats
         shell: bash
         run: |
-          echo "change_stats<<EOF" >> $GITHUB_OUTPUT
-          git diff --stat HEAD~1 HEAD || echo "No stats available" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Capture Safe Change Summary
+          STATS=$(git diff --stat HEAD~1 HEAD 2>/dev/null | tr '\n' ' ')
+          echo "change_stats=${STATS:-No stats available}" >> $GITHUB_OUTPUT
+      
+      - name: Code Changes Preview
         id: patch
-        shell: bash
         run: |
-          echo "code_changes<<EOF" >> $GITHUB_OUTPUT
-          echo "Source code updated and reviewed for deployment." >> $GITHUB_OUTPUT
-          git diff --stat HEAD~1 HEAD || true >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          echo "code_changes=Source code updated and ready for deployment." >> $GITHUB_OUTPUT
 
       - name: Fixed GitHub Issues
         id: issues
@@ -300,7 +293,7 @@ jobs:
               <br>
 
               <h3 style="color:#0d6efd;">Files Changed</h3>
-              <pre style="background:#f4f4f4;padding:12px;border:1px solid #ddd;">${{ needs.build.outputs.changed_files }}</pre>
+              <p style="background:#f4f4f4;padding:12px;border:1px solid #ddd;">${{ needs.build.outputs.changed_files }}</p>
 
               <h3 style="color:#0d6efd;">Change Statistics</h3>
               <pre style="background:#f8f9fa;padding:12px;border:1px solid #ddd;">${{ needs.build.outputs.change_stats }}</pre>
@@ -473,7 +466,7 @@ jobs:
         id: set_url
         run: |
           ENV=${{ github.event.inputs.environment }}
-          URL="https://storage.googleapis.com/${{ env.BUCKET_NAME }}/${ENV}/app/index.html"
+          URL="https://storage.googleapis.com/${{ env.BUCKET_NAME }}/${ENV}/index.html"
           echo "url=$URL" >> $GITHUB_OUTPUT
 
 # -------------------------------------------------------
@@ -537,7 +530,7 @@ jobs:
         id: set_url
         run: |
           ENV=${{ github.event.inputs.environment }}
-          URL="https://storage.googleapis.com/${{ env.BUCKET_NAME }}/${ENV}/app/index.html"
+          URL="https://storage.googleapis.com/${{ env.BUCKET_NAME }}/${ENV}/index.html"
           echo "url=$URL" >> $GITHUB_OUTPUT
 
 
