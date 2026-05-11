@@ -207,39 +207,43 @@ jobs:
 
           mkdir -p release
 
-          # 🔥 AUTO DETECT ANGULAR BUILD FOLDER
+          # 🔥 Detect Angular dist folder
           DIST_DIR=$(find dist -mindepth 1 -maxdepth 1 -type d | head -n 1)
 
           if [ -z "$DIST_DIR" ]; then
-            echo "❌ No Angular dist folder found!"
-            exit 1
+           echo "❌ No Angular dist folder found!"
+           exit 1
           fi
 
           echo "Using dist folder: $DIST_DIR"
 
-          # Detect browser folder automatically
+          # 🔥 Handle Angular 17+ browser folder
           BROWSER_DIR=$(find "$DIST_DIR" -type d -name browser | head -n 1)
 
-          if [ -z "$BROWSER_DIR" ]; then
-            echo "❌ browser folder not found!"
-            exit 1
+          if [ -n "$BROWSER_DIR" ]; then
+            echo "Using browser folder: $BROWSER_DIR"
+            cp -r "$BROWSER_DIR"/* release/
+          else
+            cp -r "$DIST_DIR"/* release/
           fi
 
-          echo "Using browser build: $BROWSER_DIR"
-
-          cp -r "$BROWSER_DIR"/* release/
-
-          # ✅ VALIDATE INDEX
+          # ✅ Validate index
           if [ ! -f "release/index.html" ]; then
             echo "❌ index.html missing!"
             ls -R release
             exit 1
           fi
 
-          ENV=${{ github.event.inputs.environment }}
-          VERSION=${{ steps.version.outputs.version }}
+          # 🔥 ENV
+          ENV="${{ github.event.inputs.environment }}"
+
+          # 🔥 VERSION (with v prefix + run number)
+          VERSION="v1.0.0.${{ github.run_number }}"
+
+          # 🔥 TIMESTAMP (YYYYMMDD_HHMMSS)
           TS=$(date +%Y%m%d_%H%M%S)
 
+          # ✅ FINAL ZIP NAME
           ZIP="build_${ENV}_${TS}_${VERSION}.zip"
 
           echo "📦 Creating ZIP: $ZIP"
@@ -247,14 +251,13 @@ jobs:
           zip -r "$ZIP" release
 
           echo "zip_name=$ZIP" >> $GITHUB_OUTPUT
-          echo "ZIP_NAME=$ZIP" >> $GITHUB_ENV
 
 # -------------------------------------------------
 # JOB 9 - UPLOAD ARTIFACT
 # -------------------------------------------------
       - uses: actions/upload-artifact@v4
         with:
-          name: build-output
+          name: ${{ steps.zip.outputs.zip_name }}
           path: ${{ steps.zip.outputs.zip_name }}
           retention-days: 1
 
